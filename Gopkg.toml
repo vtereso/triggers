@@ -3,7 +3,20 @@
 
 required = [
   "github.com/tektoncd/plumbing/scripts",
+  "github.com/knative/test-infra/scripts",
   "github.com/knative/test-infra/tools/dep-collector",
+  "k8s.io/gengo/examples/defaulter-gen/generators",
+  "k8s.io/gengo/args",
+  "k8s.io/gengo/generator",
+  "k8s.io/gengo/namer",
+  "k8s.io/gengo/types",
+  "k8s.io/gengo/examples/deepcopy-gen/generators",
+  "k8s.io/code-generator",
+  "k8s.io/code-generator/cmd/deepcopy-gen",
+  "k8s.io/code-generator/cmd/defaulter-gen",
+  "k8s.io/code-generator/cmd/client-gen",
+  "k8s.io/code-generator/cmd/lister-gen",
+  "k8s.io/code-generator/cmd/informer-gen",
 ]
 
 [[constraint]]
@@ -16,6 +29,31 @@ required = [
   # HEAD as of 2019-06-25
   revision = "69af8af1d3fec861ada88efc72409b3467b0588d"
 
+[[constraint]]
+  name = "github.com/tektoncd/pipeline"
+  version = "0.5.0"
+
+[[override]]
+  name = "gopkg.in/yaml.v2"
+  version = "v2.2.1"
+
+[[override]]
+  name = "k8s.io/api"
+  version = "kubernetes-1.15.0"
+
+[[override]]
+  name = "k8s.io/apimachinery"
+  version = "kubernetes-1.15.0"
+
+[[override]]
+  name = "k8s.io/client-go"
+  version = "kubernetes-1.15.0"
+
+[[override]]
+  name = "github.com/knative/pkg"
+  # HEAD as of 2019-06-14 💖
+  revision = "68737b1b4e03d9a888e89ee2a44714a56eefd539"
+
 [prune]
   go-tests = true
   unused-packages = true
@@ -23,4 +61,13 @@ required = [
 
 [[prune.project]]
   name = "github.com/tektoncd/plumbing"
+  non-go = false
+
+[[prune.project]]
+  name = "github.com/knative/test-infra"
+  non-go = false
+
+[[prune.project]]
+  name = "k8s.io/code-generator"
+  unused-packages = false
   non-go = false
