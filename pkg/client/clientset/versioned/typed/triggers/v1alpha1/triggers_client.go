@@ -21,6 +21,7 @@ package v1alpha1
 import (
 	v1alpha1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	"github.com/tektoncd/triggers/pkg/client/clientset/versioned/scheme"
+	serializer "k8s.io/apimachinery/pkg/runtime/serializer"
 	rest "k8s.io/client-go/rest"
 )
 
@@ -28,6 +29,7 @@ type TriggersV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	EventListenersGetter
 	TriggerBindingsGetter
+	TriggerTemplatesGetter
 }
 
 // TriggersV1alpha1Client is used to interact with features provided by the triggers group.
@@ -41,6 +43,10 @@ func (c *TriggersV1alpha1Client) EventListeners(namespace string) EventListenerI
 
 func (c *TriggersV1alpha1Client) TriggerBindings(namespace string) TriggerBindingInterface {
 	return newTriggerBindings(c, namespace)
+}
+
+func (c *TriggersV1alpha1Client) TriggerTemplates(namespace string) TriggerTemplateInterface {
+	return newTriggerTemplates(c, namespace)
 }
 
 // NewForConfig creates a new TriggersV1alpha1Client for the given config.
@@ -75,7 +81,7 @@ func setConfigDefaults(config *rest.Config) error {
 	gv := v1alpha1.SchemeGroupVersion
 	config.GroupVersion = &gv
 	config.APIPath = "/apis"
-	config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+	config.NegotiatedSerializer = serializer.DirectCodecFactory{CodecFactory: scheme.Codecs}
 
 	if config.UserAgent == "" {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()

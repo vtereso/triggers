@@ -17,6 +17,15 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: tekton-triggers-admin
 rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "create", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations"]
+    verbs: ["get", "list", "create", "update", "delete", "patch", "watch"]
   - apiGroups: ["tekton.dev"]
     resources: ["eventlisteners", "triggerbindings", "triggertemplates"]
     verbs: ["get", "list", "create", "update", "delete", "patch", "watch"]
