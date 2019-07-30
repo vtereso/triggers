@@ -302,7 +302,9 @@ func (in *TriggerTemplateSpec) DeepCopyInto(out *TriggerTemplateSpec) {
 	if in.ResourceTemplates != nil {
 		in, out := &in.ResourceTemplates, &out.ResourceTemplates
 		*out = make([]TriggerResourceTemplate, len(*in))
-		copy(*out, *in)
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	return
 }
