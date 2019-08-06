@@ -26,9 +26,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/knative/pkg/test/logging"
-	"github.com/knative/pkg/test/spoof"
+	"knative.dev/pkg/test/logging"
+	"knative.dev/pkg/test/spoof"
 )
+
+// RequestOption enables configuration of requests
+// when polling for endpoint states.
+type RequestOption func(*http.Request)
+
+// WithHeader will add the provided headers to the request.
+func WithHeader(header http.Header) RequestOption {
+	return func(r *http.Request) {
+		if r.Header == nil {
+			r.Header = header
+			return
+		}
+		for key, values := range header {
+			for _, value := range values {
+				r.Header.Add(key, value)
+			}
+		}
+	}
+}
 
 // Retrying modifies a ResponseChecker to retry certain response codes.
 func Retrying(rc spoof.ResponseChecker, codes ...int) spoof.ResponseChecker {
@@ -115,8 +134,8 @@ func MatchesAllOf(checkers ...spoof.ResponseChecker) spoof.ResponseChecker {
 // the domain in the request headers, otherwise it will make the request directly to domain.
 // desc will be used to name the metric that is emitted to track how long it took for the
 // domain to get into the state checked by inState.  Commas in `desc` must be escaped.
-func WaitForEndpointState(kubeClient *KubeClient, logf logging.FormatLogger, theURL string, inState spoof.ResponseChecker, desc string, resolvable bool) (*spoof.Response, error) {
-	return WaitForEndpointStateWithTimeout(kubeClient, logf, theURL, inState, desc, resolvable, spoof.RequestTimeout)
+func WaitForEndpointState(kubeClient *KubeClient, logf logging.FormatLogger, theURL string, inState spoof.ResponseChecker, desc string, resolvable bool, opts ...RequestOption) (*spoof.Response, error) {
+	return WaitForEndpointStateWithTimeout(kubeClient, logf, theURL, inState, desc, resolvable, spoof.RequestTimeout, opts...)
 }
 
 // WaitForEndpointStateWithTimeout will poll an endpoint until inState indicates the state is achieved
@@ -127,21 +146,25 @@ func WaitForEndpointState(kubeClient *KubeClient, logf logging.FormatLogger, the
 // domain to get into the state checked by inState.  Commas in `desc` must be escaped.
 func WaitForEndpointStateWithTimeout(
 	kubeClient *KubeClient, logf logging.FormatLogger, theURL string, inState spoof.ResponseChecker,
-	desc string, resolvable bool, timeout time.Duration) (*spoof.Response, error) {
+	desc string, resolvable bool, timeout time.Duration, opts ...RequestOption) (*spoof.Response, error) {
 	defer logging.GetEmitableSpan(context.Background(), fmt.Sprintf("WaitForEndpointState/%s", desc)).End()
 
 	// Try parsing the "theURL" with and without a scheme.
-	asURL, err := url.Parse(fmt.Sprintf("http://%s", theURL))
+	asURL, err := url.Parse(theURL)
 	if err != nil {
-		asURL, err = url.Parse(theURL)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
+	}
+	if asURL.Scheme == "" {
+		asURL.Scheme = "http"
 	}
 
 	req, err := http.NewRequest(http.MethodGet, asURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, opt := range opts {
+		opt(req)
 	}
 
 	client, err := NewSpoofingClient(kubeClient, logf, asURL.Hostname(), resolvable)
