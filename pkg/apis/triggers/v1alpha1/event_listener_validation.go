@@ -19,11 +19,28 @@ package v1alpha1
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"knative.dev/pkg/apis"
 )
 
 // Validate EventListener.
 func (t *EventListener) Validate(ctx context.Context) *apis.FieldError {
+	clientset := ctx.Value("clientSet").(dynamic.Interface)
+
+	TriggerBindings := SchemeGroupVersion.WithResource("triggerbindings")
+	TriggerTemplates := SchemeGroupVersion.WithResource("triggertemplates")
+	for _, trigger := range t.Spec.Triggers {
+		_, err := clientset.Resource(TriggerBindings).Namespace(t.Namespace).Get(trigger.Binding.Name, metav1.GetOptions{})
+		if err != nil {
+			return apis.ErrInvalidValue(err, "spec.triggers.binding")
+		}
+
+		_, err = clientset.Resource(TriggerTemplates).Namespace(t.Namespace).Get(trigger.Template.Name, metav1.GetOptions{})
+		if err != nil {
+			return apis.ErrInvalidValue(err, "spec.triggers.template")
+		}
+	}
 	return t.Spec.Validate(ctx)
 }
 
@@ -32,5 +49,6 @@ func (s *EventListenerSpec) Validate(ctx context.Context) *apis.FieldError {
 	if len(s.Triggers) == 0 {
 		return apis.ErrMissingField("spec.triggers")
 	}
+
 	return nil
 }
