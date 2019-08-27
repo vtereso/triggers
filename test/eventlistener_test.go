@@ -22,32 +22,11 @@ import (
 	"fmt"
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	reconciler "github.com/tektoncd/triggers/pkg/reconciler/v1alpha1/eventlistener"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
 	knativetest "knative.dev/pkg/test"
 	"testing"
 )
-
-func createServiceAccount(t *testing.T, namespace string) *corev1.ServiceAccount {
-	t.Helper()
-	sa, err := c.KubeClient.CoreV1().ServiceAccounts(namespace).Create(
-		&corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "sa",
-			}
-		}
-	)
-	if err != nil {
-		t.Fatalf("Failed to create ServiceAccount: %s", err)
-	}
-	t.Logf("Created ServiceAccount %s in namespace %s", sa.Name, sa.Namespace)
-	return sa
-	}
-}
 
 func TestEventListener(t *testing.T) {
 	c, namespace := setup(t)
@@ -56,7 +35,18 @@ func TestEventListener(t *testing.T) {
 	defer tearDown(t, c, namespace)
 	knativetest.CleanupOnInterrupt(func() { tearDown(t, c, namespace) }, t.Logf)
 	t.Log("Start EventListener e2e test")
-	sa := createServiceAccount(t, namespace)
+	// Create SA
+	sa, err := c.KubeClient.CoreV1().ServiceAccounts(namespace).Create(
+		&corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "sa",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Failed to create ServiceAccount: %s", err)
+	}
+	t.Logf("Created ServiceAccount %s in namespace %s", sa.Name, sa.Namespace)
 
 	// Create EventListener
 	el, err := c.TriggersClient.TektonV1alpha1().EventListeners(namespace).Create(
@@ -84,21 +74,26 @@ func TestEventListener(t *testing.T) {
 	}
 	t.Logf("Created EventListener %s in namespace %s", el.Name, el.Namespace)
 
-	verifyMap := map[string]string{
-		"Role": fmt.Sprintf("/apis/rbac.authorization.k8s.io/v1/namespaces/%s/roles/%s", namespace, fmt.Sprintf("%s%s", el.Name, reconciler.RolePostfix)),
-		"RoleBinding": fmt.Sprintf("/apis/rbac.authorization.k8s.io/v1/namespaces/%s/rolebindings/%s", namespace, fmt.Sprintf("%s%s", el.Name, reconciler.RoleBindingPostfix)),
-		"Deployment": fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/%s", namespace, el.Name),
-		"Service": fmt.Sprintf("/api/v1/namespaces/%s/services/%s", namespace, el.Name),
+	// Verify the EventListener's Service is created
+	if err = WaitForService(c, namespace, el.Name, true); err != nil {
+		t.Fatalf("Failed to create EventListener Service: %s", err)
 	}
-
-	// Verify creation
-	for kind, checker := range verifyMap {
-		t.Logf("Awaiting %s creation", kind)
-		if err = Await(checker.client, checker.uri, true); err != nil {
-			t.Fatalf("Failed to create EventListener's %s: %s", kind, err)
-		}
-		t.Logf("Found EventListener's %s", kind)
+	t.Log("Found EventListener's Service")
+	// Verify the EventListener's Deployment is created
+	if err = WaitForDeployment(c, namespace, el.Name, true); err != nil {
+		t.Fatalf("Failed to create EventListener Deployment: %s", err)
 	}
+	t.Log("Found EventListener's Deployment")
+	// Verify the EventListener's Role is created
+	if err = WaitForRole(c, namespace, fmt.Sprintf("%s%s", el.Name, reconciler.RolePostfix), true); err != nil {
+		t.Fatalf("Failed to create EventListener Role: %s", err)
+	}
+	t.Log("Found EventListener's Role")
+	// Verify the EventListener's RoleBinding is created
+	if err = WaitForRoleBinding(c, namespace, fmt.Sprintf("%s%s", el.Name, reconciler.RoleBindingPostfix), true); err != nil {
+		t.Fatalf("Failed to create EventListener RoleBinding: %s", err)
+	}
+	t.Log("Found EventListener's RoleBinding")
 
 	// Delete EventListener
 	err = c.TriggersClient.TektonV1alpha1().EventListeners(namespace).Delete(el.Name, &metav1.DeleteOptions{})
@@ -107,12 +102,24 @@ func TestEventListener(t *testing.T) {
 	}
 	t.Log("Deleted EventListener")
 
-	// Verify deletion
-	for kind, checker := range verifyMap {
-		t.Logf("Awaiting %s deletion", kind)
-		if err = Await(checker.client, checker.uri, false, nil); err != nil {
-			t.Fatalf("Failed to delete EventListener's %s: %s", kind, err)
-		}
-		t.Logf("Deleted EventListener's %s", kind)
+	// Verify the EventListener's Service is deleted
+	if err = WaitForService(c, namespace, el.Name, false); err != nil {
+		t.Fatalf("Failed to delete EventListener Service: %s", err)
 	}
+	t.Log("Deleted EventListener's Service")
+	// Verify the EventListener's Deployment is deleted
+	if err = WaitForDeployment(c, namespace, el.Name, false); err != nil {
+		t.Fatalf("Failed to delete EventListener Deployment: %s", err)
+	}
+	t.Log("Deleted EventListener's Deployment")
+	// Verify the EventListener's Role is deleted
+	if err = WaitForRole(c, namespace, fmt.Sprintf("%s%s", el.Name, reconciler.RolePostfix), false); err != nil {
+		t.Fatalf("Failed to delete EventListener Role: %s", err)
+	}
+	t.Log("Deleted EventListener's Role")
+	// Verify the EventListener's RoleBinding is deleted
+	if err = WaitForRoleBinding(c, namespace, fmt.Sprintf("%s%s", el.Name, reconciler.RoleBindingPostfix), false); err != nil {
+		t.Fatalf("Failed to delete EventListener RoleBinding: %s", err)
+	}
+	t.Log("Deleted EventListener's RoleBinding")
 }

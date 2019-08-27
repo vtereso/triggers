@@ -37,7 +37,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/rest"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -45,22 +45,59 @@ const (
 	timeout  = 30 * time.Second
 )
 
-// Await polls the k8s rest client for the existence/non-existence of the resource specified by the requestUri.
-// Errors other than metav1.StatusReasonNotFound errors are returned.
-func Await(kubeClient rest.Interface, requestUri string, exists bool) error {
+// WaitForDeployment polls for the existence/non-existence of the specified Deployment
+func WaitForDeployment(c *clients, namespace, name string, exists bool) error {
 	return wait.PollImmediate(interval, timeout, func() (bool, error) {
-		err := kubeClient.Get().
-			RequestURI(requestUri).
-			SetHeader("Content-Type", "application/json").
-			Do().
-			Error()
+		_, err := c.KubeClient.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return !exists, nil
-			} else {
-				return false, err
 			}
+			return exists, err
 		}
 		return true, nil
 	})
 }
+
+// WaitForService polls for the existence/non-existence of the specified Service
+func WaitForService(c *clients, namespace, name string, exists bool) error {
+	return wait.PollImmediate(interval, timeout, func() (bool, error) {
+		_, err := c.KubeClient.CoreV1().Services(namespace).Get(name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return !exists, nil
+			}
+			return exists, err
+		}
+		return true, nil
+	})
+}
+
+// WaitForRole polls for the existence/non-existence of the specified Role
+func WaitForRole(c *clients, namespace, name string, exists bool) error {
+	return wait.PollImmediate(interval, timeout, func() (bool, error) {
+		_, err := c.KubeClient.RbacV1().Roles(namespace).Get(name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return !exists, nil
+			}
+			return exists, err
+		}
+		return true, nil
+	})
+}
+
+// WaitForRoleBinding polls for the existence/non-existence of the specified RoleBinding
+func WaitForRoleBinding(c *clients, namespace, name string, exists bool) error {
+	return wait.PollImmediate(interval, timeout, func() (bool, error) {
+		_, err := c.KubeClient.RbacV1().RoleBindings(namespace).Get(name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return !exists, nil
+			}
+			return exists, err
+		}
+		return true, nil
+	})
+}
+
