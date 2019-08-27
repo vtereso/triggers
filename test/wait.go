@@ -36,8 +36,8 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/rest"
 )
 
 const (
@@ -45,50 +45,22 @@ const (
 	timeout  = 30 * time.Second
 )
 
-// WaitForDeploymentToExist polls for the existence of the Deployment called name
-// in the specified namespace
-func WaitForDeploymentToExist(c *clients, namespace, name string) error {
+// Await polls the k8s rest client for the existence/non-existence of the resource specified by the requestUri.
+// Errors other than metav1.StatusReasonNotFound errors are returned.
+func Await(kubeClient rest.Interface, requestUri string, exists bool) error {
 	return wait.PollImmediate(interval, timeout, func() (bool, error) {
-		_, err := c.KubeClient.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{})
-		if err != nil && errors.IsNotFound(err) {
-			return false, nil
+		err := kubeClient.Get().
+			RequestURI(requestUri).
+			SetHeader("Content-Type", "application/json").
+			Do().
+			Error()
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return !exists, nil
+			} else {
+				return false, err
+			}
 		}
-		return true, err
-	})
-}
-
-// WaitForDeploymentToNotExist polls for the absence of the Deployment called
-// name in the specified namespace
-func WaitForDeploymentToNotExist(c *clients, namespace, name string) error {
-	return wait.PollImmediate(interval, timeout, func() (bool, error) {
-		_, err := c.KubeClient.AppsV1().Deployments(namespace).Get(name, metav1.GetOptions{})
-		if err != nil && errors.IsNotFound(err) {
-			return true, nil
-		}
-		return false, err
-	})
-}
-
-// WaitForServiceToExist polls for the existence of the Service called name in
-// the specified namespace
-func WaitForServiceToExist(c *clients, namespace, name string) error {
-	return wait.PollImmediate(interval, timeout, func() (bool, error) {
-		_, err := c.KubeClient.CoreV1().Services(namespace).Get(name, metav1.GetOptions{})
-		if err != nil && errors.IsNotFound(err) {
-			return false, nil
-		}
-		return true, err
-	})
-}
-
-// WaitForServiceToNotExist polls for the absence of the Service called name in
-// the specified namespace
-func WaitForServiceToNotExist(c *clients, namespace, name string) error {
-	return wait.PollImmediate(interval, timeout, func() (bool, error) {
-		_, err := c.KubeClient.CoreV1().Services(namespace).Get(name, metav1.GetOptions{})
-		if err != nil && errors.IsNotFound(err) {
-			return true, nil
-		}
-		return false, err
+		return true, nil
 	})
 }
