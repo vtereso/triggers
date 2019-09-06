@@ -16,10 +16,10 @@ spec:
     - apiVersion: tekton.dev/v1alpha1
       kind: PipelineResource
       metadata:
-        name: git-source
+        name: git-source-$(uid)
         namespace: $(params.namespace)
         labels:
-            triggertemplated: true
+          triggertemplated: "true"
       spec:
         type: git
         params:
@@ -30,16 +30,14 @@ spec:
     - apiVersion: tekton.dev/v1alpha1
       kind: PipelineRun
       metadata:
-        name: simple-pipeline-run
-        namespace: default
+        generateName: simple-pipeline-run
+        namespace: $(params.namespace)
         labels:
-            triggertemplated: true
+          triggertemplated: "true"
       spec:
         pipelineRef:
             name: simple-pipeline
-        trigger:
-          type: event
         resources:
         - name: git-source
           resourceRef:
-            name: git-source
+            name: git-source-$(uid)

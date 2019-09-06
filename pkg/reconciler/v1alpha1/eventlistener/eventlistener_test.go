@@ -18,12 +18,14 @@ package eventlistener
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/tektoncd/pipeline/pkg/system"
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	"github.com/tektoncd/triggers/test"
+	bldr "github.com/tektoncd/triggers/test/builder"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,19 +54,11 @@ func TestReconcile(t *testing.T) {
 			Name: "tekton-pipelines",
 		},
 	}
-	eventListener := &v1alpha1.EventListener{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "tekton-pipelines",
-			Name:      "my-eventlistener",
-		},
-		Spec: v1alpha1.EventListenerSpec{
-			TriggerBindingRefs: []v1alpha1.TriggerBindingRef{
-				{
-					Name: "my-triggerbinding",
-				},
-			},
-		},
-	}
+	eventListener := bldr.EventListener("my-eventlistener", "tekton-pipelines",
+		bldr.EventListenerSpec(
+			bldr.EventListenerTrigger("my-triggerbinding", "my-triggertemplate", ""),
+		),
+	)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:       "tekton-pipelines",
@@ -81,7 +75,6 @@ func TestReconcile(t *testing.T) {
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "tekton-triggers-controller",
 					Containers: []corev1.Container{
 						{
 							Name:  "event-listener",
@@ -91,9 +84,10 @@ func TestReconcile(t *testing.T) {
 									ContainerPort: int32(Port),
 								},
 							},
-							Env: []corev1.EnvVar{
-								{Name: "LISTENER_NAME", Value: "my-eventlistener"},
-								{Name: "LISTENER_NAMESPACE", Value: "tekton-pipelines"},
+							Args: []string{
+								"-el-name", "my-eventlistener",
+								"-el-namespace", "tekton-pipelines",
+								"-port", strconv.Itoa(Port),
 							},
 						},
 					},
@@ -125,14 +119,12 @@ func TestReconcile(t *testing.T) {
 		key                string
 		testResourcesStart test.TestResources
 		testResourcesEnd   test.TestResources
-		wantErr            bool
 	}{
 		{
 			name:               "delete-eventlistener",
 			key:                "tekton-pipelines/my-eventlistener",
 			testResourcesStart: test.TestResources{},
 			testResourcesEnd:   test.TestResources{},
-			wantErr:            false,
 		},
 		{
 			name: "create-eventlistener",
@@ -147,7 +139,6 @@ func TestReconcile(t *testing.T) {
 				Deployments:    []*appsv1.Deployment{deployment},
 				Services:       []*corev1.Service{service},
 			},
-			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
@@ -158,10 +149,9 @@ func TestReconcile(t *testing.T) {
 
 			// Run Reconcile
 			err := testAssets.Controller.Reconciler.Reconcile(context.Background(), tt.key)
-
-			// Check error matches wantErr
-			if (tt.wantErr && (err == nil)) || (!tt.wantErr && (err != nil)) {
-				t.Errorf("eventlistener.Reconcile() error = %v, wantErr = %v", err, tt.wantErr)
+			if err != nil {
+				t.Errorf("eventlistener.Reconcile() returned error: %s", err)
+				return
 			}
 
 			// Check current resources match endTestResources
@@ -169,8 +159,8 @@ func TestReconcile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diff := cmp.Diff(*actualTestResourcesEnd, tt.testResourcesEnd); diff != "" {
-				t.Errorf("eventlistener.Reconcile() diff testResourcesEnd actual vs expected: %s", diff)
+			if diff := cmp.Diff(tt.testResourcesEnd, *actualTestResourcesEnd); diff != "" {
+				t.Errorf("eventlistener.Reconcile(): -want +got: %s", diff)
 			}
 		})
 	}
