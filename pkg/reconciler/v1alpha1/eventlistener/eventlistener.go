@@ -83,7 +83,10 @@ func (c *Reconciler) Reconcile(ctx context.Context, key string) error {
 	// Don't modify the informer's copy
 	el := original.DeepCopy()
 
-	// Propagate labels from EventListener to Deployment
+	// TODO(dibyom): Once #70 is merged, we should validate triggerTemplate here
+	// and update the StatusCondition
+
+	// Propagate labels from EventListener to Deployment + Service
 	labels := make(map[string]string, len(el.ObjectMeta.Labels)+1)
 	for key, val := range el.ObjectMeta.Labels {
 		labels[key] = val
@@ -171,13 +174,11 @@ func (c *Reconciler) Reconcile(ctx context.Context, key string) error {
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{"app": el.Name},
-			Type:     corev1.ServiceTypeLoadBalancer,
-			Ports: []corev1.ServicePort{
-				{
-					Protocol: corev1.ProtocolTCP,
-					Port:     int32(Port),
-				},
-			},
+			Type:     corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{{
+				Protocol: corev1.ProtocolTCP,
+				Port:     int32(Port),
+			}},
 		},
 	}
 	oldService, err := c.KubeClientSet.CoreV1().Services(el.Namespace).Get(el.Name, metav1.GetOptions{})
@@ -194,15 +195,21 @@ func (c *Reconciler) Reconcile(ctx context.Context, key string) error {
 			c.Logger.Errorf("Error creating EventListener Service: %s", err)
 			return err
 		}
-	} else if !reflect.DeepEqual(oldService, service) {
-		// Update the EventListener Service
-		oldService.Spec = service.Spec
-		_, err = c.KubeClientSet.CoreV1().Services(el.Namespace).Update(oldService)
-		if err != nil {
-			c.Logger.Errorf("Error updating EventListener Service: %s", err)
-			return err
+	} else {
+		// clusterIP cannot be updated once set. So, ignore it when comparing the serviceSpecs
+		if oldService.Spec.ClusterIP != "" {
+			service.Spec.ClusterIP = oldService.Spec.ClusterIP
 		}
-		c.Logger.Info("Updated EventListener Service %s in Namespace %s", el.Name, el.Namespace)
+		if !reflect.DeepEqual(oldService.Spec, service.Spec) {
+			// Update the EventListener Service
+			oldService.Spec = service.Spec
+			_, err = c.KubeClientSet.CoreV1().Services(el.Namespace).Update(oldService)
+			if err != nil {
+				c.Logger.Errorf("Error updating EventListener Service: %s", err)
+				return err
+			}
+			c.Logger.Info("Updated EventListener Service %s in Namespace %s", el.Name, el.Namespace)
+		}
 	}
 
 	return nil
