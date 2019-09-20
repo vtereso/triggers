@@ -40,19 +40,21 @@ type ResolvedBinding struct {
 type getTriggerBinding func(name string, options metav1.GetOptions) (*triggersv1.TriggerBinding, error)
 type getTriggerTemplate func(name string, options metav1.GetOptions) (*triggersv1.TriggerTemplate, error)
 
-func ResolveBinding(trigger triggersv1.Trigger, getTB getTriggerBinding, getTT getTriggerTemplate) (ResolvedBinding, error) {
-	tb, err := getTB(trigger.TriggerBinding.Name, metav1.GetOptions{})
+func ResolveBinding(trigger triggersv1.EventListenerTrigger, getTB getTriggerBinding, getTT getTriggerTemplate) (ResolvedBinding, error) {
+	tbName := trigger.Binding.Name
+	tb, err := getTB(tbName, metav1.GetOptions{})
 	if err != nil {
-		return ResolvedBinding{}, xerrors.Errorf("Error getting TriggerBinding %s: %s", trigger.TriggerBinding.Name, err)
+		return ResolvedBinding{}, xerrors.Errorf("Error getting TriggerBinding %s: %s", tbName, err)
 	}
-	tt, err := getTT(trigger.TriggerTemplate.Name, metav1.GetOptions{})
+	ttName := trigger.Template.Name
+	tt, err := getTT(ttName, metav1.GetOptions{})
 	if err != nil {
-		return ResolvedBinding{}, xerrors.Errorf("Error getting TriggerTemplate %s: %s", trigger.TriggerTemplate.Name, err)
+		return ResolvedBinding{}, xerrors.Errorf("Error getting TriggerTemplate %s: %s", ttName, err)
 	}
 	return ResolvedBinding{TriggerBinding: tb, TriggerTemplate: tt}, nil
 }
 
-// AddDefaultParamsFromSpec returns the params with the addition of all
+// MergeInDefaultParams returns the params with the addition of all
 // paramSpecs that have default values and are already in the params list
 func MergeInDefaultParams(params []pipelinev1.Param, paramSpecs []pipelinev1.ParamSpec) []pipelinev1.Param {
 	allParamsMap := map[string]pipelinev1.ArrayOrString{}
@@ -64,13 +66,7 @@ func MergeInDefaultParams(params []pipelinev1.Param, paramSpecs []pipelinev1.Par
 	for _, param := range params {
 		allParamsMap[param.Name] = param.Value
 	}
-	allParams := make([]pipelinev1.Param, len(allParamsMap))
-	i := 0
-	for name, value := range allParamsMap {
-		allParams[i] = pipelinev1.Param{Name: name, Value: value}
-		i++
-	}
-	return allParams
+	return convertParamMapToArray(allParamsMap)
 }
 
 // ApplyParamsToResourceTemplate returns the TriggerResourceTemplate with the
@@ -100,4 +96,32 @@ func Uid() string {
 // The same uid should be used per trigger to properly address resources throughout the TriggerTemplate.
 func ApplyUIDToResourceTemplate(rt json.RawMessage, uid string) json.RawMessage {
 	return bytes.Replace(rt, uidMatch, []byte(uid), -1)
+}
+
+// MergeParams merges two param arrays. An error is returned if there are
+// multiple params with the same name.
+func MergeParams(params1 []pipelinev1.Param, params2 []pipelinev1.Param) ([]pipelinev1.Param, error) {
+	// Assume params1 does not have any duplicate names within itself
+	// Assume params2 does not have any duplicate names within itself
+	paramMap := map[string]pipelinev1.ArrayOrString{}
+	for _, p1 := range params1 {
+		paramMap[p1.Name] = p1.Value
+	}
+	for _, p2 := range params2 {
+		if _, ok := paramMap[p2.Name]; ok {
+			return []pipelinev1.Param{}, fmt.Errorf("%s", p2.Name)
+		}
+		paramMap[p2.Name] = p2.Value
+	}
+	return convertParamMapToArray(paramMap), nil
+}
+
+func convertParamMapToArray(paramMap map[string]pipelinev1.ArrayOrString) []pipelinev1.Param {
+	params := make([]pipelinev1.Param, len(paramMap))
+	i := 0
+	for name, value := range paramMap {
+		params[i] = pipelinev1.Param{Name: name, Value: value}
+		i++
+	}
+	return params
 }

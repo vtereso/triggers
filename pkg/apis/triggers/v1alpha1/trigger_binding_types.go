@@ -19,10 +19,11 @@ package v1alpha1
 import (
 	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/pkg/apis"
 )
 
 // Check that TriggerBinding may be validated and defaulted.
-//var _ apis.Validatable = (*TriggerBinding)(nil)
+var _ apis.Validatable = (*TriggerBinding)(nil)
 
 type TriggerBindingSpec struct {
 	Params []pipelinev1.Param `json:"params,omitempty"`

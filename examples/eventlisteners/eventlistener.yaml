@@ -9,3 +9,6 @@ spec:
         name: pipeline-binding
       template:
         name: pipeline-template
+      params:
+        - name: message
+          value: Hello from the Triggers EventListener!

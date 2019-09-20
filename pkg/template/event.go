@@ -92,12 +92,16 @@ func getEventPathValue(event []byte, eventPath string) (string, error) {
 	return eventPathValue, nil
 }
 
-// NewResources returns all resources defined when applying the event to the
-// TriggerTemplate and TriggerBinding in the ResolvedBinding.
-func NewResources(event []byte, binding ResolvedBinding) ([]json.RawMessage, error) {
+// NewResources returns all resources defined when applying the event and
+// elParams to the TriggerTemplate and TriggerBinding in the ResolvedBinding.
+func NewResources(event []byte, elParams []pipelinev1.Param, binding ResolvedBinding) ([]json.RawMessage, error) {
 	params, err := ApplyEventToParams(event, binding.TriggerBinding.Spec.Params)
 	if err != nil {
 		return []json.RawMessage{}, xerrors.Errorf("Error applying event to TriggerBinding params: %s", err)
+	}
+	params, err = MergeParams(params, elParams)
+	if err != nil {
+		return []json.RawMessage{}, xerrors.Errorf("Error merging params from EventListener with TriggerBinding params: %s", err)
 	}
 	params = MergeInDefaultParams(params, binding.TriggerTemplate.Spec.Params)
 

@@ -29,13 +29,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	fakepipelineclientset "github.com/tektoncd/pipeline/pkg/client/clientset/versioned/fake"
 	pipelinetest "github.com/tektoncd/pipeline/test"
 	pipelinetb "github.com/tektoncd/pipeline/test/builder"
 	triggersv1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	faketriggersclientset "github.com/tektoncd/triggers/pkg/client/clientset/versioned/fake"
+	bldr "github.com/tektoncd/triggers/test/builder"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -353,7 +353,7 @@ func Test_HandleEvent(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pipelineresource",
 			Namespace: namespace,
-			Labels:    map[string]string{"zorigiallabel": "foo"},
+			Labels:    map[string]string{"app": "$(params.appLabel)"},
 		},
 		Spec: pipelinev1.PipelineResourceSpec{
 			Type: pipelinev1.PipelineResourceTypeGit,
@@ -371,7 +371,7 @@ func Test_HandleEvent(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pipelineresource",
 			Namespace: namespace,
-			Labels:    map[string]string{"zorigiallabel": "foo", "tekton.dev/eventlistener": "my-eventlistener"},
+			Labels:    map[string]string{"app": "foo", "tekton.dev/eventlistener": "my-eventlistener"},
 		},
 		Spec: pipelinev1.PipelineResourceSpec{
 			Type: pipelinev1.PipelineResourceTypeGit,
@@ -381,61 +381,29 @@ func Test_HandleEvent(t *testing.T) {
 			},
 		},
 	}
-
 	pipelineResourceBytes, err := json.Marshal(pipelineResource)
 	if err != nil {
 		t.Fatalf("Error unmarshalling pipelineResource: %s", err)
 	}
-	wantPipelineResourceBytes, err := json.Marshal(wantPipelineResource)
-	if err != nil {
-		t.Fatalf("Error unmarshalling wantPipelineResource: %s", err)
-	}
 	wantPipelineResourceURLPath := "/apis/tekton.dev/v1alpha1/namespaces/foo/pipelineresources"
 
-	tt := &triggersv1.TriggerTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "my-triggertemplate",
-		},
-		Spec: triggersv1.TriggerTemplateSpec{
-			Params: []pipelinev1.ParamSpec{
-				pipelinev1.ParamSpec{Name: "url"},
-				pipelinev1.ParamSpec{Name: "revision"},
-			},
-			ResourceTemplates: []triggersv1.TriggerResourceTemplate{
-				triggersv1.TriggerResourceTemplate{RawMessage: json.RawMessage(pipelineResourceBytes)},
-			},
-		},
-	}
-	tb := &triggersv1.TriggerBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "my-triggerbinding",
-		},
-		Spec: triggersv1.TriggerBindingSpec{
-			Params: []pipelinev1.Param{
-				pipelinev1.Param{
-					Name:  "url",
-					Value: pipelinev1.ArrayOrString{StringVal: "$(event.repository.url)", Type: pipelinev1.ParamTypeString},
-				},
-				pipelinev1.Param{
-					Name:  "revision",
-					Value: pipelinev1.ArrayOrString{StringVal: "$(event.head_commit.id)", Type: pipelinev1.ParamTypeString},
-				},
-			},
-		},
-	}
-	el := &triggersv1.EventListener{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "my-eventlistener",
-		},
-		Spec: triggersv1.EventListenerSpec{
-			Triggers: []triggersv1.Trigger{
-				triggersv1.Trigger{
-					TriggerBinding:  triggersv1.TriggerBindingRef{Name: "my-triggerbinding"},
-					TriggerTemplate: triggersv1.TriggerTemplateRef{Name: "my-triggertemplate"},
-				},
-			},
-		},
-	}
+	tt := bldr.TriggerTemplate("my-triggertemplate", namespace,
+		bldr.TriggerTemplateSpec(
+			bldr.TriggerTemplateParam("url", "", ""),
+			bldr.TriggerTemplateParam("revision", "", ""),
+			bldr.TriggerTemplateParam("appLabel", "", ""),
+			bldr.TriggerResourceTemplate(json.RawMessage(pipelineResourceBytes)),
+		))
+	tb := bldr.TriggerBinding("my-triggerbinding", namespace,
+		bldr.TriggerBindingSpec(
+			bldr.TriggerBindingParam("url", "$(event.repository.url)"),
+			bldr.TriggerBindingParam("revision", "$(event.head_commit.id)"),
+		))
+	el := bldr.EventListener("my-eventlistener", namespace,
+		bldr.EventListenerSpec(
+			bldr.EventListenerTrigger("my-triggerbinding", "my-triggertemplate", "v1alpha1",
+				bldr.EventListenerTriggerParam("appLabel", "foo")),
+		))
 
 	kubeClient := fakekubeclientset.NewSimpleClientset()
 	kubeClient.Resources = []*metav1.APIResourceList{
@@ -494,7 +462,11 @@ func Test_HandleEvent(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		if diff := cmp.Diff(string(wantPipelineResourceBytes), string(body)); diff != "" {
+		gotPipelineResource := pipelinev1.PipelineResource{}
+		if err = json.Unmarshal(body, &gotPipelineResource); err != nil {
+			t.Errorf("Error unmarshalling body as pipelineResource: %s \n%s", string(body), err)
+		}
+		if diff := cmp.Diff(wantPipelineResource, gotPipelineResource); diff != "" {
 			t.Errorf("Diff request body: -want +got: %s", diff)
 		}
 		return &http.Response{StatusCode: http.StatusCreated, Body: ioutil.NopCloser(bytes.NewReader([]byte{}))}, nil
@@ -526,16 +498,14 @@ func TestResource_validateEvent(t *testing.T) {
 		EventListenerNamespace: "foo",
 	}
 
-	triggerValidate := &triggersv1.TriggerValidate{
-		TaskRef: pipelinev1.TaskRef{
-			Name: "bar",
-		},
-		ServiceAccountName: "foo",
-	}
+	triggerValidate := &triggersv1.TriggerValidate{}
+	bldr.EventListenerTriggerValidateTaskRef("bar", "v1alpha1", pipelinev1.NamespacedTaskKind)(triggerValidate)
+	bldr.EventListenerTriggerValidateServiceAccount("foo")(triggerValidate)
+
 	task := pipelinetb.Task("bar", "foo", pipelinetb.TaskSpec(
 		pipelinetb.TaskInputs(
-			pipelinetb.InputsParamSpec("param", v1alpha1.ParamTypeString, pipelinetb.ParamSpecDescription("mydesc"), pipelinetb.ParamSpecDefault("default")),
-			pipelinetb.InputsParamSpec("array-param", v1alpha1.ParamTypeString, pipelinetb.ParamSpecDescription("desc"), pipelinetb.ParamSpecDefault("array", "values")))))
+			pipelinetb.InputsParamSpec("param", pipelinev1.ParamTypeString, pipelinetb.ParamSpecDescription("mydesc"), pipelinetb.ParamSpecDefault("default")),
+			pipelinetb.InputsParamSpec("array-param", pipelinev1.ParamTypeString, pipelinetb.ParamSpecDescription("desc"), pipelinetb.ParamSpecDefault("array", "values")))))
 
 	h := http.Header{}
 	h.Set("X-Hub-Signature", "1234567")
@@ -566,7 +536,7 @@ func TestResource_validateEvent(t *testing.T) {
 				pClient.PrependReactor("create", "taskruns",
 					func(action k8stest.Action) (bool, runtime.Object, error) {
 						create := action.(k8stest.CreateActionImpl)
-						obj := create.GetObject().(*v1alpha1.TaskRun)
+						obj := create.GetObject().(*pipelinev1.TaskRun)
 						obj.Name = "bar-random"
 						return true, obj, nil
 					})
@@ -593,7 +563,7 @@ func TestResource_validateEvent(t *testing.T) {
 				pClient.PrependReactor("create", "taskruns",
 					func(action k8stest.Action) (bool, runtime.Object, error) {
 						create := action.(k8stest.CreateActionImpl)
-						obj := create.GetObject().(*v1alpha1.TaskRun)
+						obj := create.GetObject().(*pipelinev1.TaskRun)
 						obj.Name = "bar-random"
 						return true, obj, nil
 					})
@@ -660,19 +630,10 @@ func TestResource_createValidateTask(t *testing.T) {
 	}
 
 	payload := []byte("test payload")
-	triggerValidate := &triggersv1.TriggerValidate{
-		TaskRef: pipelinev1.TaskRef{
-			Name: "bar",
-		},
-		ServiceAccountName: "foo",
-		Params: []pipelinev1.Param{{
-			Name: "Secret",
-			Value: pipelinev1.ArrayOrString{
-				Type:      pipelinev1.ParamTypeString,
-				StringVal: "github-secret",
-			},
-		}},
-	}
+	triggerValidate := &triggersv1.TriggerValidate{}
+	bldr.EventListenerTriggerValidateTaskRef("bar", "v1alpha1", pipelinev1.NamespacedTaskKind)(triggerValidate)
+	bldr.EventListenerTriggerValidateServiceAccount("foo")(triggerValidate)
+	bldr.EventListenerTriggerValidateParam("Secret", "github-secret")(triggerValidate)
 
 	tests := []struct {
 		name    string
@@ -687,16 +648,16 @@ func TestResource_createValidateTask(t *testing.T) {
 				clients, _ := pipelinetest.SeedTestData(t, ctx, pipelinetest.Data{
 					Tasks: []*pipelinev1.Task{pipelinetb.Task("bar", "foo", pipelinetb.TaskSpec(
 						pipelinetb.TaskInputs(
-							pipelinetb.InputsParamSpec("Secret", v1alpha1.ParamTypeString, pipelinetb.ParamSpecDescription("mydesc")),
-							pipelinetb.InputsParamSpec("EventBody", v1alpha1.ParamTypeString, pipelinetb.ParamSpecDescription("mydesc")),
-							pipelinetb.InputsParamSpec("EventHeaders", v1alpha1.ParamTypeArray, pipelinetb.ParamSpecDescription("desc")))))},
+							pipelinetb.InputsParamSpec("Secret", pipelinev1.ParamTypeString, pipelinetb.ParamSpecDescription("mydesc")),
+							pipelinetb.InputsParamSpec("EventBody", pipelinev1.ParamTypeString, pipelinetb.ParamSpecDescription("mydesc")),
+							pipelinetb.InputsParamSpec("EventHeaders", pipelinev1.ParamTypeArray, pipelinetb.ParamSpecDescription("desc")))))},
 				})
 				return clients.Pipeline
 			}(),
 			want: func() *pipelinev1.TaskRun {
 				tr := pipelinetb.TaskRun("", "foo", pipelinetb.TaskRunLabel("tekton.dev/eventlistener", "foo-listener"),
 					pipelinetb.TaskRunSpec(pipelinetb.TaskRunServiceAccount("foo"),
-						pipelinetb.TaskRunTaskRef(triggerValidate.TaskRef.Name, pipelinetb.TaskRefKind(triggerValidate.TaskRef.Kind)),
+						pipelinetb.TaskRunTaskRef(triggerValidate.TaskRef.Name, pipelinetb.TaskRefAPIVersion("v1alpha1"), pipelinetb.TaskRefKind(triggerValidate.TaskRef.Kind)),
 						pipelinetb.TaskRunInputs(
 							pipelinetb.TaskRunInputsParam("Secret", "github-secret"),
 							pipelinetb.TaskRunInputsParam("EventBody", string(payload)),

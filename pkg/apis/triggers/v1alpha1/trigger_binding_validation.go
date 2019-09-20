@@ -20,7 +20,6 @@ import (
 	"context"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	"knative.dev/pkg/apis"
-	"strings"
 )
 
 // Validate TriggerBinding.
@@ -30,17 +29,20 @@ func (t *TriggerBinding) Validate(ctx context.Context) *apis.FieldError {
 
 // Validate TriggerBindingSpec.
 func (s *TriggerBindingSpec) Validate(ctx context.Context) *apis.FieldError {
-	return validateParameters(s.Params)
+	if err := validateParams(s.Params); err != nil {
+		return err
+	}
+	return nil
 }
 
-// Ensure there aren't multiple params with the same name.
-func validateParameters(params []v1alpha1.Param) *apis.FieldError {
+func validateParams(params []v1alpha1.Param) *apis.FieldError {
+	// Ensure there aren't multiple params with the same name.
 	seen := map[string]struct{}{}
-	for _, p := range params {
-		if _, ok := seen[strings.ToLower(p.Name)]; ok {
+	for _, param := range params {
+		if _, ok := seen[param.Name]; ok {
 			return apis.ErrMultipleOneOf("spec.params")
 		}
-		seen[p.Name] = struct{}{}
+		seen[param.Name] = struct{}{}
 	}
 	return nil
 }

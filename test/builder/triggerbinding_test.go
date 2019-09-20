@@ -55,7 +55,7 @@ func TestTriggerBindingBuilder(t *testing.T) {
 			),
 		},
 		{
-			name: "Two Param",
+			name: "Two Params",
 			normal: &v1alpha1.TriggerBinding{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "name",
@@ -88,7 +88,7 @@ func TestTriggerBindingBuilder(t *testing.T) {
 			),
 		},
 		{
-			name: "Two Param with extra Meta",
+			name: "Extra Meta",
 			normal: &v1alpha1.TriggerBinding{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "name",
@@ -101,33 +101,12 @@ func TestTriggerBindingBuilder(t *testing.T) {
 					Kind:       "TriggerBinding",
 					APIVersion: "v1alpha1",
 				},
-				Spec: v1alpha1.TriggerBindingSpec{
-					Params: []pipelinev1.Param{
-						pipelinev1.Param{
-							Name: "param1",
-							Value: pipelinev1.ArrayOrString{
-								StringVal: "value1",
-								Type:      pipelinev1.ParamTypeString,
-							},
-						},
-						pipelinev1.Param{
-							Name: "param2",
-							Value: pipelinev1.ArrayOrString{
-								StringVal: "value2",
-								Type:      pipelinev1.ParamTypeString,
-							},
-						},
-					},
-				},
+				Spec: v1alpha1.TriggerBindingSpec{},
 			},
 			builder: TriggerBinding("name", "namespace",
 				TriggerBindingMeta(
 					TypeMeta("TriggerBinding", "v1alpha1"),
 					Label("key", "value"),
-				),
-				TriggerBindingSpec(
-					TriggerBindingParam("param1", "value1"),
-					TriggerBindingParam("param2", "value2"),
 				),
 			),
 		},

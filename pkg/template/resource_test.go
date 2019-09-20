@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	triggersv1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
+	bldr "github.com/tektoncd/triggers/test/builder"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 )
@@ -265,10 +266,7 @@ var (
 )
 
 func Test_ResolveBinding(t *testing.T) {
-	trigger := triggersv1.Trigger{
-		TriggerBinding:  triggersv1.TriggerBindingRef{Name: "my-triggerbinding"},
-		TriggerTemplate: triggersv1.TriggerTemplateRef{Name: "my-triggertemplate"},
-	}
+	trigger := bldr.Trigger("my-triggerbinding", "my-triggertemplate", "v1alpha1")
 	want := ResolvedBinding{TriggerBinding: &tb, TriggerTemplate: &tt}
 	got, err := ResolveBinding(trigger, getTB, getTT)
 	if err != nil {
@@ -280,36 +278,27 @@ func Test_ResolveBinding(t *testing.T) {
 func Test_ResolveBinding_error(t *testing.T) {
 	tests := []struct {
 		name    string
-		trigger triggersv1.Trigger
+		trigger triggersv1.EventListenerTrigger
 		getTB   getTriggerBinding
 		getTT   getTriggerTemplate
 	}{
 		{
-			name: "error triggerbinding",
-			trigger: triggersv1.Trigger{
-				TriggerBinding:  triggersv1.TriggerBindingRef{Name: "invalid-name"},
-				TriggerTemplate: triggersv1.TriggerTemplateRef{Name: "my-triggertemplate"},
-			},
-			getTB: getTB,
-			getTT: getTT,
+			name:    "error triggerbinding",
+			trigger: bldr.Trigger("invalid-tb-name", "my-triggertemplate", "v1alpha1"),
+			getTB:   getTB,
+			getTT:   getTT,
 		},
 		{
-			name: "error triggertemplate",
-			trigger: triggersv1.Trigger{
-				TriggerBinding:  triggersv1.TriggerBindingRef{Name: "my-triggerbinding"},
-				TriggerTemplate: triggersv1.TriggerTemplateRef{Name: "invalid-name"},
-			},
-			getTB: getTB,
-			getTT: getTT,
+			name:    "error triggertemplate",
+			trigger: bldr.Trigger("my-triggerbinding", "invalid-tt-name", "v1alpha1"),
+			getTB:   getTB,
+			getTT:   getTT,
 		},
 		{
-			name: "error triggerbinding and triggertemplate",
-			trigger: triggersv1.Trigger{
-				TriggerBinding:  triggersv1.TriggerBindingRef{Name: "invalid-name"},
-				TriggerTemplate: triggersv1.TriggerTemplateRef{Name: "invalid-name"},
-			},
-			getTB: getTB,
-			getTT: getTT,
+			name:    "error triggerbinding and triggertemplate",
+			trigger: bldr.Trigger("invalid-tb-name", "invalid-tt-name", "v1alpha1"),
+			getTB:   getTB,
+			getTT:   getTT,
 		},
 	}
 	for _, tt := range tests {
@@ -351,6 +340,253 @@ func Test_ApplyUIDToResourceTemplate(t *testing.T) {
 			actualRt := ApplyUIDToResourceTemplate(tt.rt, Uid())
 			if diff := cmp.Diff(string(tt.expectedRt), string(actualRt)); diff != "" {
 				t.Errorf("ApplyUIDToResourceTemplate(): -want +got: %s", diff)
+			}
+		})
+	}
+}
+
+func Test_MergeParams(t *testing.T) {
+	tests := []struct {
+		name    string
+		params1 []pipelinev1.Param
+		params2 []pipelinev1.Param
+		want    []pipelinev1.Param
+	}{
+		{
+			name:    "empty",
+			params1: []pipelinev1.Param{},
+			params2: []pipelinev1.Param{},
+			want:    []pipelinev1.Param{},
+		},
+		{
+			name:    "empty params1",
+			params1: []pipelinev1.Param{},
+			params2: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param21",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			want: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param21",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+		{
+			name: "empty params2",
+			params1: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param11",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			params2: []pipelinev1.Param{},
+			want: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param11",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+		{
+			name: "one params1 and one params2",
+			params1: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param11",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			params2: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param21",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			want: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param11",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param21",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+		{
+			name: "multiple params1 and multiple params2",
+			params1: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param11",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param12",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			params2: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param21",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param22",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			want: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param11",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param12",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param21",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param22",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := MergeParams(tt.params1, tt.params2)
+			if err != nil {
+				t.Errorf("MergeParams() returned error: %s", err)
+			}
+			sort.Sort(ByName(got))
+			sort.Sort(ByName(tt.want))
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("MergeParams(): -want +got: %s", diff)
+			}
+		})
+	}
+}
+
+func Test_MergeParams_error(t *testing.T) {
+	tests := []struct {
+		name    string
+		params1 []pipelinev1.Param
+		params2 []pipelinev1.Param
+	}{
+		{
+			name: "one duplicate name",
+			params1: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "duplicate1",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			params2: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "duplicate1",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+		{
+			name: "multiple duplicate names",
+			params1: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "duplicate1",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "unique11",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "duplicate2",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+			params2: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "unique21",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "duplicate2",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "duplicate1",
+					Value: pipelinev1.ArrayOrString{StringVal: "value", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, err := MergeParams(tt.params1, tt.params2); err == nil {
+				t.Errorf("MergeParams() did not return error; got: %+v", got)
+			}
+		})
+	}
+}
+
+func Test_convertParamMapToArray(t *testing.T) {
+	tests := []struct {
+		name     string
+		paramMap map[string]pipelinev1.ArrayOrString
+		want     []pipelinev1.Param
+	}{
+		{
+			name:     "empty",
+			paramMap: map[string]pipelinev1.ArrayOrString{},
+			want:     []pipelinev1.Param{},
+		},
+		{
+			name: "one param",
+			paramMap: map[string]pipelinev1.ArrayOrString{
+				"param1": pipelinev1.ArrayOrString{StringVal: "value1", Type: pipelinev1.ParamTypeString},
+			},
+			want: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param1",
+					Value: pipelinev1.ArrayOrString{StringVal: "value1", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+		{
+			name: "multiple params",
+			paramMap: map[string]pipelinev1.ArrayOrString{
+				"param1": pipelinev1.ArrayOrString{StringVal: "value1", Type: pipelinev1.ParamTypeString},
+				"param2": pipelinev1.ArrayOrString{StringVal: "value2", Type: pipelinev1.ParamTypeString},
+				"param3": pipelinev1.ArrayOrString{StringVal: "value3", Type: pipelinev1.ParamTypeString},
+			},
+			want: []pipelinev1.Param{
+				pipelinev1.Param{
+					Name:  "param1",
+					Value: pipelinev1.ArrayOrString{StringVal: "value1", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param2",
+					Value: pipelinev1.ArrayOrString{StringVal: "value2", Type: pipelinev1.ParamTypeString},
+				},
+				pipelinev1.Param{
+					Name:  "param3",
+					Value: pipelinev1.ArrayOrString{StringVal: "value3", Type: pipelinev1.ParamTypeString},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := convertParamMapToArray(tt.paramMap)
+			sort.Sort(ByName(got))
+			sort.Sort(ByName(tt.want))
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("convertParamMapToArray(): -want +got: %s", diff)
 			}
 		})
 	}
